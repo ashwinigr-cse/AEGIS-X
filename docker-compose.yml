@@ -1,0 +1,87 @@
+services:
+  # AEGIS X Central Orchestrator & Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aegis-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql+asyncpg://aegis_user:aegis_password@db:5432/aegis_db
+      - HINDSIGHT_BASE_URL=http://hindsight:8888
+      - TOXIPROXY_HOST=toxiproxy
+      - TOXIPROXY_PORT=8474
+    depends_on:
+      db:
+        condition: service_healthy
+      toxiproxy:
+        condition: service_started
+    networks:
+      - aegis-net
+
+  # AEGIS X Command Centre Frontend (React + Vite)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: aegis-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    networks:
+      - aegis-net
+
+  # Relational Database for Immutable Logs, Runs & Audits
+  db:
+    image: postgres:16-alpine
+    container_name: aegis-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=aegis_user
+      - POSTGRES_PASSWORD=aegis_password
+      - POSTGRES_DB=aegis_db
+    volumes:
+      - aegis-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aegis_user -d aegis_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aegis-net
+
+  # Toxiproxy Fault Injection Engine (for Active Chaos Interventions)
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.11.0
+    container_name: aegis-toxiproxy
+    ports:
+      - "8474:8474"   # API management port
+      - "9000-9050:9000-9050" # Proxied traffic ports
+    networks:
+      - aegis-net
+
+  # Hindsight Long-Term Memory Service
+  hindsight:
+    image: ghcr.io/vectorize-io/hindsight:latest
+    container_name: aegis-hindsight
+    ports:
+      - "8888:8888"   # API Port
+      - "9999:9999"   # Control Plane Web UI
+    environment:
+      - HINDSIGHT_API_LLM_API_KEY=${LLM_API_KEY:-dummy_key}
+    volumes:
+      - hindsight-data:/home/hindsight/.pg0
+    networks:
+      - aegis-net
+
+networks:
+  aegis-net:
+    driver: bridge
+
+volumes:
+  aegis-db-data:
+  hindsight-data:
